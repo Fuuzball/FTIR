@@ -4,20 +4,20 @@ import numpy as np
 
 class regionSelectGUI:
     def __init__(self, root, imgPath, imgSize, pointDim):
-        imgW, imgH = imgSize
-        Xpts, Ypts = pointDim
-        
+        self.imgW, self.imgH = imgSize
+        self.Xpts, self.Ypts = pointDim
+
         self.root = root
         root.title('Select region of interest')
 
         self.addRegion = True
         self.brushSize = 10
 
-        self.ptsInt = np.zeros((Xpts, Ypts))
-        self.scanPoints = [ [0 for _ in range(Ypts)] for _ in range(Xpts)]
+        self.ptsInt = np.zeros((self.Xpts, self.Ypts))
+        self.scanPoints = [ [0 for _ in range(self.Ypts)] for _ in range(self.Xpts)]
 
         # Create canvas
-        self.canvas = tk.Canvas(root, width = imgW, height = imgH)
+        self.canvas = tk.Canvas(root, width = self.imgW, height = self.imgH)
 
         self.canvas.pack()
 
@@ -47,10 +47,10 @@ class regionSelectGUI:
         #self.colorPoints()
 
     def initializePoints(self):
-        for i in range(Xpts):
-            for j in range(Ypts):
-                x = imgW/(Xpts - 1) * i
-                y = imgH/(Ypts - 1) * j
+        for i in range(self.Xpts):
+            for j in range(self.Ypts):
+                x = self.imgW/(self.Xpts - 1) * i
+                y = self.imgH/(self.Ypts - 1) * j
                 r = 1
                 self.scanPoints[i][j] = self.canvas.create_oval(x-r, y-r, x+r, y+r, fill = "#0000FF", width = 0)
 
@@ -75,8 +75,8 @@ class regionSelectGUI:
                     self.ptsInt[i, j] = -1
 
     def updatePoints(self):
-        for i in range(Xpts):
-            for j in range(Ypts):
+        for i in range(self.Xpts):
+            for j in range(self.Ypts):
                 if self.ptsInt[i, j] == 1:
                     self.canvas.itemconfig(
                             self.scanPoints[i][j], fill = "green"
@@ -96,21 +96,6 @@ class regionSelectGUI:
 
                 
     def getNearestPoint(self, x, y):
-        i = int(np.round(x * (Xpts - 1) / imgW))
-        j = int(np.round(y * (Ypts - 1) / imgH))
+        i = int(np.round(x * (self.Xpts - 1) / self.imgW))
+        j = int(np.round(y * (self.Ypts - 1) / self.imgH))
         return i, j
-
-imgPath = './data/vis_img.gif'
-root = tk.Tk()
-
-imgW = 607
-imgH = 295
-
-Xpts = 108
-Ypts = 53
-
-imgSize = (imgW, imgH)
-pointsDim = (Xpts, Ypts)
-my_gui = regionSelectGUI(root, imgPath, imgSize, pointsDim)
-root.mainloop()
-
