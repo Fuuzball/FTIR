@@ -5,32 +5,54 @@ from sklearn import svm
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
+import spectral.io.envi as envi 
 
 
+def classifyPoints(points, spec):
+    points = np.flipud(points)
+    X0 = []
+    X1 = []
+    y0 = []
+    y1 = []
+    for i, j in np.argwhere(points == -1):
+        X0.append(spec[i,j])
+        y0.append(0)
+    for i, j in np.argwhere(points == 1):
+        X1.append(spec[i,j])
+        y1.append(1)
 
-def classifyPoints(points):
-    X0 = np.argwhere(points == -1)
-    X1 = np.argwhere(points == 1)
+    X = np.vstack((X0, X1))
+    y = np.hstack((y0, y1))
+
+    clf = svm.SVC(kernel = 'linear')
+    clf.fit(X, y)
+
+    specList = spec.reshape(-1, spec.shape[-1])
+    pred = clf.predict(specList)
+    predXY = pred.reshape(points.shape)
+    plt.imshow(predXY, origin = 'bottom')
+    plt.show()
+
+    
+def classifyPointsref(points, spec):
+    print (points.shape)
+    print (spec.shape)
+    #print(np.argwhere(points == 1))
+
+    [spec[idx] for idx in np.where(points == 1)]
+    X0 = spec[np.argwhere(points == -1)]
+    X1 = sepc[np.argwhere(points == 1)]
     X = np.vstack((X0, X1))
     y = np.ones(X.shape[0])
     y[:X0.shape[0]] = 0
 
-    clf = svm.SVC()
+    clf = svm.SVC(kernel = 'linear')
     clf.fit(X, y)
-    
-    grid = np.zeros_like(points)
-    coords = np.argwhere(grid == 0) 
-
-    pred = clf.predict(coords)
-    pred = pred.reshape(grid.shape).T
-    plt.imshow(pred)
-    plt.show()
-
 
 class regionSelectGUI:
     def __init__(self, root, imgPath, imgSize, pointDim):
         self.imgW, self.imgH = imgSize
-        self.Xpts, self.Ypts = pointDim
+        self.Ypts, self.Xpts = pointDim
 
         self.root = root
         root.title('Select region of interest')
@@ -38,7 +60,7 @@ class regionSelectGUI:
         self.addRegion = True
         self.brushSize = 10
 
-        self.ptsInt = np.zeros((self.Xpts, self.Ypts))
+        self.ptsInt = np.zeros((self.Ypts, self.Xpts))
         self.scanPoints = [ [0 for _ in range(self.Ypts)] for _ in range(self.Xpts)]
 
         # Create canvas
@@ -83,9 +105,7 @@ class regionSelectGUI:
             #Switch from adding to taking away
             self.addRegion = not self.addRegion
         if event.char == 'r':
-            classifyPoints(self.ptsInt)
-
-        
+            classifyPoints(self.ptsInt, spec)
 
     def addPoints(self, x0, y0):
         r = self.brushSize
@@ -98,14 +118,14 @@ class regionSelectGUI:
             for y in range(ymin, ymax):
                 i, j = self.getNearestPoint(x, y)
                 if self.addRegion:
-                    self.ptsInt[i, j] = 1
+                    self.ptsInt[j, i] = 1
                 else:
-                    self.ptsInt[i, j] = -1
+                    self.ptsInt[j, i] = -1
 
     def updatePoints(self):
         for i in range(self.Xpts):
             for j in range(self.Ypts):
-                if self.ptsInt[i, j] == 1:
+                if self.ptsInt[j, i] == 1:
                     self.canvas.itemconfig(
                             self.scanPoints[i][j], fill = "green"
                             )
@@ -113,7 +133,7 @@ class regionSelectGUI:
                         self.scanPoints[i][j]
                             )
 
-                if self.ptsInt[i, j] == -1:
+                if self.ptsInt[j, i] == -1:
                     self.canvas.itemconfig(
                             self.scanPoints[i][j], fill = "red"
                             )
@@ -129,17 +149,14 @@ class regionSelectGUI:
 
         return i, j
 
+specFile = './data/test.hdr'
+lib = envi.open(specFile)
+spec = np.array(lib[:,:,:])
 
-imgPath = './data/vis_img.gif'
+imgPath = './data/vis_img.gif' 
+imgSize = (607, 295)
+pointsDim = (53, 108)
+
 root = tk.Tk()
-
-imgW = 607
-imgH = 295
-
-Xpts = 108
-Ypts = 53
-
-imgSize = (imgW, imgH)
-pointsDim = (Xpts, Ypts)
 my_gui = regionSelectGUI(root, imgPath, imgSize, pointsDim)
 root.mainloop()
