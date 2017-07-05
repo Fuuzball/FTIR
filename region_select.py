@@ -9,7 +9,6 @@ import spectral.io.envi as envi
 
 
 def classifyPoints(points, spec):
-    points = np.flipud(points)
     X0 = []
     X1 = []
     y0 = []
@@ -30,7 +29,7 @@ def classifyPoints(points, spec):
     specList = spec.reshape(-1, spec.shape[-1])
     pred = clf.predict(specList)
     predXY = pred.reshape(points.shape)
-    plt.imshow(predXY, origin = 'bottom')
+    plt.imshow(predXY)
     plt.show()
 
     
@@ -152,6 +151,7 @@ class regionSelectGUI:
 specFile = './data/test.hdr'
 lib = envi.open(specFile)
 spec = np.array(lib[:,:,:])
+spec = np.flipud(spec)
 
 imgPath = './data/vis_img.gif' 
 imgSize = (607, 295)
