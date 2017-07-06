@@ -5,8 +5,8 @@ from sklearn import svm
 import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
-import spectral.io.envi as envi 
-
+from PIL import Image
+from PIL import ImageTk
 
 def classifyPoints(points, spec):
     X0 = []
@@ -31,8 +31,7 @@ def classifyPoints(points, spec):
     predXY = pred.reshape(points.shape)
     plt.imshow(predXY)
     plt.show()
-
-    
+   
 def classifyPointsref(points, spec):
     print (points.shape)
     print (spec.shape)
@@ -68,9 +67,12 @@ class regionSelectGUI:
         self.canvas.pack()
 
         # Load image as background
-        self.img = tk.PhotoImage(file = imgPath) 
-        self.canvas.create_image(0, 0, anchor = tk.NW, image = self.img) 
-
+        #self.img = tk.PhotoImage(file = imgPath) 
+        
+        self.img = Image.open(imgPath)
+        self.photo = ImageTk.PhotoImage(self.img)
+        self.canvas.create_image(0, 0, anchor = tk.NW, image = self.photo)
+        
         # Listen for Key and mouse events
         self.canvas.bind("<B1-Motion>", self.paint) 
         self.canvas.bind("<Key>", self.keyPress) 
@@ -148,12 +150,13 @@ class regionSelectGUI:
 
         return i, j
 
-specFile = './data/test.hdr'
-lib = envi.open(specFile)
-spec = np.array(lib[:,:,:])
-spec = np.flipud(spec)
+#specFile = './data/test.hdr'
+#lib = envi.open(specFile)
+#spec = np.array(lib[:,:,:])
+#spec = np.flipud(spec)
 
-imgPath = './data/vis_img.gif' 
+imgPath = '.\\data\\vis_img.gif' 
+imgPath = 'C:/Documents and Settings/IR User/Desktop/FTIR-master/data/vis_img.png'
 imgSize = (607, 295)
 pointsDim = (53, 108)
 

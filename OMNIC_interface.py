@@ -2,6 +2,7 @@ import win32com.client
 import numpy as np
 from PIL import ImageGrab
 import matplotlib.pylab as plt
+from PIL import Image
 
 om = win32com.client.Dispatch("OmnicApp.OmnicApp")
 
@@ -9,6 +10,10 @@ def Exec(s):
 	om.ExecuteCommand(s)
 
 def moveTo(x, y):
+	Exec("stagesetxy {} {}".format(x, y))
+	
+def moveTo(xy):
+	x, y = xy
 	Exec("stagesetxy {} {}".format(x, y))
 	
 def getXY():
@@ -65,10 +70,12 @@ def csvToArr(dir):
 		specArr[i] = np.genfromtxt(dir + str(i) + '.csv', delimiter = ',')[:,1]
 		
 	return waveNumArr, specArr
-
+centerXY = (0, 0)
+moveTo(centerXY)
 scanList = [ (0,0), (1000, 0), (1000, 1000), (0, 1000) ]
 dir = "I:\\HoiYing\\ompytest\\"
 
-
+im = getMicroscopeImage()
+im.save(dir + "test.png")
 
 x = input("Press RETURN to exit")
