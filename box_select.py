@@ -1,10 +1,6 @@
 from __future__ import division
 import Tkinter as tk
 import numpy as np
-from sklearn import svm 
-import matplotlib
-matplotlib.use("TkAgg")
-import matplotlib.pyplot as plt
 from PIL import Image
 from PIL import ImageTk
 
@@ -160,10 +156,7 @@ class boxSelect:
 #spec = np.array(lib[:,:,:])
 #spec = np.flipud(spec)
 
-imgPath = 'C:/Documents and Settings/IR User/Desktop/FTIR-master/data/vis_img.png'
 imgPath = './data/vis_img_select.JPG'
-imgSize = (607, 295)
-pointsDim = (53, 108)
 
 a = 567 / 200
 b = 425 / 150
