@@ -150,16 +150,38 @@ class regionSelectGUI:
 
         return i, j
 
+class boxSelectGUI:
+    def __init__(self, root, imgPath, a, b, x0, y0):
+        self.a = a
+        self.b = b
+        self.x0 = x0
+        self.y0 = y0
+
+        self.root = rooto
+
+        # Create canvas
+        self.canvas
+
+
+
+
 #specFile = './data/test.hdr'
 #lib = envi.open(specFile)
 #spec = np.array(lib[:,:,:])
 #spec = np.flipud(spec)
 
-imgPath = '.\\data\\vis_img.gif' 
 imgPath = 'C:/Documents and Settings/IR User/Desktop/FTIR-master/data/vis_img.png'
+imgPath = './data/vis_img_select.JPG'
 imgSize = (607, 295)
 pointsDim = (53, 108)
 
+a = 567 / 200
+b = 425 / 150
+x1, y1 = 400, -10250
+u1, v1 = 630, 294
+x0 = (x1 - u1/a)
+y0 = (y1 - v1/b)
+
 root = tk.Tk()
-my_gui = regionSelectGUI(root, imgPath, imgSize, pointsDim)
+#my_gui = regionSelectGUI(root, imgPath, imgSize, pointsDim)
 root.mainloop()
