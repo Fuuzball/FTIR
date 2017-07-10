@@ -32,21 +32,6 @@ def classifyPoints(points, spec):
     plt.imshow(predXY)
     plt.show()
    
-def classifyPointsref(points, spec):
-    print (points.shape)
-    print (spec.shape)
-    #print(np.argwhere(points == 1))
-
-    [spec[idx] for idx in np.where(points == 1)]
-    X0 = spec[np.argwhere(points == -1)]
-    X1 = sepc[np.argwhere(points == 1)]
-    X = np.vstack((X0, X1))
-    y = np.ones(X.shape[0])
-    y[:X0.shape[0]] = 0
-
-    clf = svm.SVC(kernel = 'linear')
-    clf.fit(X, y)
-
 class regionSelectGUI:
     def __init__(self, root, imgPath, imgSize, pointDim):
         self.imgW, self.imgH = imgSize
@@ -150,20 +135,6 @@ class regionSelectGUI:
 
         return i, j
 
-class boxSelectGUI:
-    def __init__(self, root, imgPath, a, b, x0, y0):
-        self.a = a
-        self.b = b
-        self.x0 = x0
-        self.y0 = y0
-
-        self.root = rooto
-
-        # Create canvas
-        self.canvas
-
-
-
 
 #specFile = './data/test.hdr'
 #lib = envi.open(specFile)
@@ -174,13 +145,6 @@ imgPath = 'C:/Documents and Settings/IR User/Desktop/FTIR-master/data/vis_img.pn
 imgPath = './data/vis_img_select.JPG'
 imgSize = (607, 295)
 pointsDim = (53, 108)
-
-a = 567 / 200
-b = 425 / 150
-x1, y1 = 400, -10250
-u1, v1 = 630, 294
-x0 = (x1 - u1/a)
-y0 = (y1 - v1/b)
 
 root = tk.Tk()
 #my_gui = regionSelectGUI(root, imgPath, imgSize, pointsDim)

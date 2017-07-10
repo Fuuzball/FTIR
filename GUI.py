@@ -1,6 +1,7 @@
 from __future__ import division
 import Tkinter as tk
 import numpy as np
+import csv
 from PIL import Image
 from PIL import ImageTk
 
@@ -43,10 +44,14 @@ def classifyPointsref(points, spec):
     clf = svm.SVC(kernel = 'linear')
     clf.fit(X, y)
 
+def savePoints(points, fname):
+    with open(fname, "wb") as f:
+        writer = csv.writer(f)
+        writer.writerows(points)
+
 class boxSelect:
-    def __init__(self, root, imgPath, a, b, x0, y0, scanPtsFn):
+    def __init__(self, root, imgPath, a, b, x0, y0):
         self.root = root
-        self.scanFn = scanPtsFn
 
         # Load reference image
         self.img = Image.open(imgPath)
@@ -150,6 +155,10 @@ class boxSelect:
                     self.canvas.create_oval(u - r, v - r, u + r, v + r, fill = 'red', outline = '')
                     )
 
+    def scanFn(self, points):
+        savePoints(points, './data/gridPoints')
+        scan(points)
+
 imgPath = './data/vis_img_select.JPG'
 
 a = 567 / 200
@@ -162,5 +171,5 @@ y0 = (y1 - v1/b)
 root = tk.Tk()
 def printfn(scanPts):
     print (scanPts)
-my_gui = boxSelect(root, imgPath, a, b, x0, y0, printfn)
+gui = boxSelect(root, imgPath, a, b, x0, y0)
 root.mainloop()
