@@ -43,15 +43,37 @@ class OmPyGUI(QWidget):
         self.resize(self.boxSelector.size()) 
         self.show()
 
-    def toggle_scanning(self):
-        self.scanThread = ScanThread(self.scan_points)
-        self.scanThread.start()
-        self.scanning = True
-        self.update_UI()
+    def start_scanning(self):
+            self.scan_thread = QThread()
+            self.scan_runner = ScanRunner(self.scan_points)
+            self.scan_runner.moveToThread(self.scan_thread)
+            self.scan_thread.started.connect(self.scan_runner.run)
+            #self.scan_thread.start()
+
+            self.scan_status = 'scanning'
+            self.update_UI()
+
+
+    def toggle_scanning(self): 
+        if self.scan_status == 'ready':
+            self.scan_status = 'scanning'
+            self.scan_thread = QThread()
+            self.scan_runner = ScanRunner(self.scan_points)
+            self.scan_runner.moveToThread(self.scan_thread)
+            self.scan_thread.started.connect(self.scan_runner.run)
+
+            self.scan_thread.start()
+            self.update_UI()
+
+        elif self.scan_status == 'scanning':
+            self.scan_status = 'paused'
+            self.update_UI()
+
+        elif self.scan_status == 'paused':
+            self.scan_status = 'scanning'
+            self.update_UI()
 
     def stop_scanning(self):
-        self.scanThread.exit()
-        self.scanning = False
         self.update_UI()
 
     def update_UI(self):
@@ -63,15 +85,21 @@ class OmPyGUI(QWidget):
         elif self.scan_status == 'ready': 
             self.btn_toggle_scan.setEnabled(True) 
             self.btn_stop_scan.setEnabled(False) 
+            self.btn_toggle_scan.setText('Start Scan')
             self.status_msg.setText('Ready for scanning')
         elif self.scan_status == 'scanning':
             self.btn_toggle_scan.setEnabled(True)
             self.btn_stop_scan.setEnabled(True)
-            self.status_msg.setText('Start Scan')
+            self.btn_toggle_scan.setText('Pause Scan')
+            self.status_msg.setText('Scanning...')
         elif self.scan_status == 'paused':
             self.btn_toggle_scan.setEnabled(True)
             self.btn_stop_scan.setEnabled(True) 
-            self.status_msg.setText('Start Scan')
+            self.btn_toggle_scan.setText('Resume Scan')
+            self.status_msg.setText('Scanning Paused')
+
+    def finished_scanning(self):
+        self.status_msg.setText('Finished Scanning')
 
 
 class ScanBoxSelect(QWidget):
@@ -165,6 +193,7 @@ class ScanBoxSelect(QWidget):
 
 
 class Selector(QWidget):
+
     def __init__(self, parent = None):
         super().__init__(parent)
         self.parent = parent
@@ -181,6 +210,7 @@ class Selector(QWidget):
 
 
 class PointVis(QWidget):
+
     def __init__(self, points, parent = None):
         super().__init__(parent)
         self.parent = parent
@@ -256,16 +286,39 @@ class ScanThread(QThread):
         self.scan_next()
 
     def scan_next(self):
-        if scan:
+        try:
+            i = self.points.status.index(0)
+            self.points.set_scanning(i)
+            xy = self.points.xy[i]
+            if self.scan:
+                mock_scan(xy)
+                self.points.set_scanned(i)
+                self.scan_next()
+        except ValueError:
+            print('done')
+            
+
+class ScanRunner(QObject):
+
+    def __init__(self, points):
+        super().__init__()
+        self.points = points
+        self.is_scanning = True
+
+    def run(self):
+        while self.is_scanning:
             try:
                 i = self.points.status.index(0)
                 self.points.set_scanning(i)
                 xy = self.points.xy[i]
                 mock_scan(xy)
                 self.points.set_scanned(i)
-                self.scan_next()
+                #self.scan_next()
             except ValueError:
                 print('done')
+
+    def pause(self):
+        self.is_scanning = False
 
 
 def mock_scan(xy):
