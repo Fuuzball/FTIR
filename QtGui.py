@@ -9,14 +9,12 @@ imgPath = os.getcwd() + '/scantest/vis_ref.png'
 class OmPyGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.scanning = False
-        self.region_selected = False
+        self.scan_status = 'select'
         self.scan_points = ScanPoints(parent=self)
         self.initUI()
+        self.update_UI()
 
-    def initUI(self):
-        self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
-
+    def initUI(self): 
         self.btn_toggle_scan = QPushButton('Scan', self)
         self.btn_toggle_scan.setEnabled(False)
         self.btn_toggle_scan.clicked.connect(self.toggle_scanning)
@@ -27,6 +25,8 @@ class OmPyGUI(QWidget):
 
         self.status_msg = QLabel('Select region for scanning', self)
 
+        self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
+        
         # Fix the size of of box selector
         self.boxSelector.setFixedSize(self.boxSelector.size())
 
@@ -44,18 +44,34 @@ class OmPyGUI(QWidget):
         self.show()
 
     def toggle_scanning(self):
-        self.scanThread = MockScan(self.boxSelector.ptsXY)
+        self.scanThread = ScanThread(self.scan_points)
         self.scanThread.start()
         self.scanning = True
-        self.update_btns()
+        self.update_UI()
 
     def stop_scanning(self):
         self.scanThread.exit()
         self.scanning = False
-        self.update_btns()
+        self.update_UI()
 
-    def update_btns(self):
-        pass
+    def update_UI(self):
+        if self.scan_status == 'select':
+            self.btn_toggle_scan.setEnabled(False) 
+            self.btn_stop_scan.setEnabled(False)
+            self.btn_toggle_scan.setText('Start Scan')
+            self.status_msg.setText('Select region for scanning')
+        elif self.scan_status == 'ready': 
+            self.btn_toggle_scan.setEnabled(True) 
+            self.btn_stop_scan.setEnabled(False) 
+            self.status_msg.setText('Ready for scanning')
+        elif self.scan_status == 'scanning':
+            self.btn_toggle_scan.setEnabled(True)
+            self.btn_stop_scan.setEnabled(True)
+            self.status_msg.setText('Start Scan')
+        elif self.scan_status == 'paused':
+            self.btn_toggle_scan.setEnabled(True)
+            self.btn_stop_scan.setEnabled(True) 
+            self.status_msg.setText('Start Scan')
 
 
 class ScanBoxSelect(QWidget):
@@ -93,20 +109,28 @@ class ScanBoxSelect(QWidget):
         self.resize(self.rImgW, self.rImgH)
 
     def mousePressEvent(self, event):
-        self.selecting = True
-        self.curPos = event.pos()
-        self.origin = event.pos()
+        if self.parent.scan_status in ['select', 'ready']:
+            self.parent.scan_points.clear_points()
+            self.selecting = True
+            self.curPos = event.pos()
+            self.origin = event.pos()
 
     def mouseMoveEvent(self, event):
-        self.curPos = event.pos()
-        self.selectPoints()
-        self.update()
+        if self.selecting:
+            self.curPos = event.pos()
+            self.parent.scan_points.set_points_to_scan(self.getPtSelected())
+            self.update()
 
     def mouseReleaseEvent(self, event):
-        self.selecting = False
-        self.selectPoints()
-        self.parent.update_btns()
-        self.update() 
+        if self.selecting:
+            self.selecting = False
+            self.parent.scan_points.set_points_to_scan(self.getPtSelected())
+            if self.parent.scan_points.xy:
+                self.parent.scan_status = 'ready'
+            else:
+                self.parent.scan_status = 'select' 
+            self.parent.update_UI()
+            self.update() 
 
     def getPtSelected(self):
         u0, v0 = self.origin.x(), self.origin.y()
@@ -128,9 +152,6 @@ class ScanBoxSelect(QWidget):
 
         return [(x, y) for y in yList for x in xList]
 
-    def selectPoints(self):
-        for xy in self.getPtSelected():
-            self.parent.scan_points.append_point(xy)
 
     def uv_to_xy(self, u, v):
         x = (u - self.rImgW/2) / self.a + self.x0
@@ -188,11 +209,16 @@ class ScanPoints(object):
         self.parent = parent
         self.xy = xy
         self.status = status
-        self.points_updated()
+        #self.points_updated()
 
     def clear_points(self):
         self.xy = []
         self.status = []
+        self.points_updated()
+
+    def set_points_to_scan(self, points):
+        self.xy = points
+        self.status = [0 for p in points]
         self.points_updated()
 
     def append_point(self, pt, s=0):
@@ -202,32 +228,51 @@ class ScanPoints(object):
 
     def set_status(self, i, s):
         self.status[i] = s
-        self.points_updated 
+        self.points_updated()
 
     def set_scanned(self, i):
-        self.set_status(1)
+        self.set_status(i, 1)
 
     def set_scanning(self, i):
-        self.set_status(-1)
+        self.set_status(i, -1)
 
     def set_to_scan(self, i):
-        self.set_status(0)
+        self.set_status(i, 0)
 
     def points_updated(self):
-        pass
+        self.max_idx = len(self.xy)
+        self.parent.update_UI()
+        self.parent.update()
 
-class MockScan(QThread):
+
+class ScanThread(QThread):
 
     def __init__(self, points):
         super().__init__()
         self.points = points
-        self.i = 0
-        self.max_i = len(points)
+        self.scan = True
 
     def run(self):
-        while self.i < self.max_i:
-            print(p)
-            time.sleep(1)
+        self.scan_next()
+
+    def scan_next(self):
+        if scan:
+            try:
+                i = self.points.status.index(0)
+                self.points.set_scanning(i)
+                xy = self.points.xy[i]
+                mock_scan(xy)
+                self.points.set_scanned(i)
+                self.scan_next()
+            except ValueError:
+                print('done')
+
+
+def mock_scan(xy):
+    print('Scanning {}...'.format(xy))
+    time.sleep(1)
+
+
 
 
 if __name__ == '__main__':
