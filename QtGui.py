@@ -6,24 +6,32 @@ from PyQt5.QtGui import *
 
 imgPath = os.getcwd() + '/scantest/vis_ref.png'
 
-class OmPyGUI(QWidget):
+class OmPyGUI(QMainWindow):
+
     def __init__(self):
         super().__init__()
         self.scan_status = 'select'
         self.scan_points = ScanPoints(parent=self)
+        self.working_dir = None
+        self.box_selectable = False
         self.initUI()
         self.update_UI()
 
     def initUI(self): 
+        self.container = QWidget(self)
         self.btn_toggle_scan = QPushButton('Scan', self)
         self.btn_toggle_scan.setEnabled(False)
         self.btn_toggle_scan.clicked.connect(self.toggle_scanning)
 
         self.btn_stop_scan = QPushButton('Stop Scanning', self)
         self.btn_stop_scan.setEnabled(False)
-        self.btn_toggle_scan.clicked.connect(self.stop_scanning)
+        self.btn_stop_scan.clicked.connect(self.stop_scanning)
 
-        self.status_msg = QLabel('Select region for scanning', self)
+        self.btn_select_dir = QPushButton('Set Directory', self)
+        self.btn_select_dir.setEnabled(True)
+        self.btn_select_dir.clicked.connect(self.select_dir)
+
+        self.statusBar().showMessage('Ready')
 
         self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
         
@@ -31,75 +39,115 @@ class OmPyGUI(QWidget):
         self.boxSelector.setFixedSize(self.boxSelector.size())
 
         buttonRow = QHBoxLayout()
+        buttonRow.addWidget(self.btn_select_dir)
         buttonRow.addWidget(self.btn_toggle_scan)
         buttonRow.addWidget(self.btn_stop_scan)
 
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
         layout.addWidget(self.boxSelector)
-        layout.addWidget(self.status_msg)
 
-        self.setLayout(layout) 
-        self.resize(self.boxSelector.size()) 
+        self.container.setLayout(layout) 
+        self.container.resize(self.boxSelector.size()) 
+
+        self.setCentralWidget(self.container)
         self.show()
 
     def start_scanning(self):
-            self.scan_thread = QThread()
-            self.scan_runner = ScanRunner(self.scan_points)
-            self.scan_runner.moveToThread(self.scan_thread)
-            self.scan_thread.started.connect(self.scan_runner.run)
-            #self.scan_thread.start()
 
-            self.scan_status = 'scanning'
-            self.update_UI()
+        self.scan_thread = QThread()
+        self.scan_runner = ScanRunner(self.scan_points)
+        self.scan_runner.moveToThread(self.scan_thread)
+        self.scan_thread.started.connect(self.scan_runner.run)
 
+        self.scan_runner.finished.connect(self.finished_scanning)
+
+        self.scan_thread.start()
+
+        self.update_UI()
 
     def toggle_scanning(self): 
+        print('toggle scanning-----')
+        print('Sender: {}'.format(self.sender().text()))
+        print(self.scan_status)
+        print('-----')
         if self.scan_status == 'ready':
             self.scan_status = 'scanning'
-            self.scan_thread = QThread()
-            self.scan_runner = ScanRunner(self.scan_points)
-            self.scan_runner.moveToThread(self.scan_thread)
-            self.scan_thread.started.connect(self.scan_runner.run)
-
-            self.scan_thread.start()
-            self.update_UI()
+            self.start_scanning()
 
         elif self.scan_status == 'scanning':
             self.scan_status = 'paused'
-            self.update_UI()
+            self.scan_runner.is_scanning = False
+            #self.update_UI()
 
         elif self.scan_status == 'paused':
             self.scan_status = 'scanning'
-            self.update_UI()
-
-    def stop_scanning(self):
-        self.update_UI()
+            self.start_scanning()
 
     def update_UI(self):
         if self.scan_status == 'select':
             self.btn_toggle_scan.setEnabled(False) 
             self.btn_stop_scan.setEnabled(False)
             self.btn_toggle_scan.setText('Start Scan')
-            self.status_msg.setText('Select region for scanning')
+            if self.working_dir:
+                self.statusBar().showMessage('Select region for scanning')
+            else:
+                self.statusBar().showMessage('Select directory to store files')
         elif self.scan_status == 'ready': 
             self.btn_toggle_scan.setEnabled(True) 
             self.btn_stop_scan.setEnabled(False) 
             self.btn_toggle_scan.setText('Start Scan')
-            self.status_msg.setText('Ready for scanning')
+            self.statusBar().showMessage('Ready for scanning')
         elif self.scan_status == 'scanning':
             self.btn_toggle_scan.setEnabled(True)
             self.btn_stop_scan.setEnabled(True)
-            self.btn_toggle_scan.setText('Pause Scan')
-            self.status_msg.setText('Scanning...')
+            self.btn_toggle_scan.setText('Pause')
+            self.statusBar().showMessage('Scanning...')
         elif self.scan_status == 'paused':
+            print('status paused')
             self.btn_toggle_scan.setEnabled(True)
             self.btn_stop_scan.setEnabled(True) 
             self.btn_toggle_scan.setText('Resume Scan')
-            self.status_msg.setText('Scanning Paused')
+            self.statusBar().showMessage('Scanning Paused')
+        elif self.scan_status == 'finished':
+            print('status finished')
+            self.btn_toggle_scan.setEnabled(False)
+            self.btn_stop_scan.setEnabled(False) 
+            self.statusBar().showMessage('Finished Scaning')
+        elif self.scan_status == 'stopping':
+            self.btn_toggle_scan.setEnabled(False)
+            self.btn_stop_scan.setEnabled(False) 
+            self.statusBar().showMessage('Stopping Scan')
+            
+    def stop_scanning(self):
+        print('stop scanning-----')
+        print(self.sender())
+        if self.scan_runner.is_scanning:
+            self.scan_runner.is_scanning = False
+            self.scan_thread.exit()
+            #self.scan_points.clear_points()
+            self.scan_status = 'stopping'
+        else:
+            self.scan_status = 'select'
+        self.update_UI()
 
     def finished_scanning(self):
-        self.status_msg.setText('Finished Scanning')
+        print('finished scan')
+        if self.scan_status == 'stopping':
+            self.scan_status = 'select'
+            self.scan_points.clear_points()
+        else: 
+            if 0 in self.scan_points.status:
+                self.scan_status = 'paused'
+                self.scan_thread.exit()
+            else:
+                self.scan_status = 'finished'
+                self.scan_thread.exit()
+
+        self.update_UI()
+
+    def select_dir(self):
+        self.working_dir = QFileDialog.getExistingDirectory(self, 'Select working directory') 
 
 
 class ScanBoxSelect(QWidget):
@@ -218,19 +266,23 @@ class PointVis(QWidget):
         self.resize(parent.size())
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
+
     def paintEvent(self, e):
         q = QPainter(self)
         ptXY = self.points.xy
         ptStat = self.points.status
         for xy, s in zip(ptXY, ptStat):
             uv = self.parent.xy_to_uv(*xy)
+            q.setPen(Qt.NoPen)
             if s == 0:
-                q.setPen(QPen(Qt.red, 2))
+                q.setBrush(QBrush(Qt.red))
             if s == -1:
-                q.setPen(QPen(Qt.blue, 2))
+                q.setBrush(QBrush(Qt.blue))
             if s == 1:
-                q.setPen(QPen(Qt.green, 2))
-            q.drawPoint(*uv)
+                q.setBrush(QBrush(Qt.green))
+            #q.drawPoint(*uv)
+            r = self.parent.xRes * 0.6
+            q.drawEllipse(QPoint(*uv), r, r)
 
 
 class ScanPoints(object):
@@ -275,30 +327,9 @@ class ScanPoints(object):
         self.parent.update()
 
 
-class ScanThread(QThread):
-
-    def __init__(self, points):
-        super().__init__()
-        self.points = points
-        self.scan = True
-
-    def run(self):
-        self.scan_next()
-
-    def scan_next(self):
-        try:
-            i = self.points.status.index(0)
-            self.points.set_scanning(i)
-            xy = self.points.xy[i]
-            if self.scan:
-                mock_scan(xy)
-                self.points.set_scanned(i)
-                self.scan_next()
-        except ValueError:
-            print('done')
-            
-
 class ScanRunner(QObject):
+
+    finished = pyqtSignal()
 
     def __init__(self, points):
         super().__init__()
@@ -307,23 +338,21 @@ class ScanRunner(QObject):
 
     def run(self):
         while self.is_scanning:
-            try:
+            if 0 in self.points.status:
                 i = self.points.status.index(0)
                 self.points.set_scanning(i)
                 xy = self.points.xy[i]
                 mock_scan(xy)
                 self.points.set_scanned(i)
                 #self.scan_next()
-            except ValueError:
-                print('done')
-
-    def pause(self):
-        self.is_scanning = False
+            else:
+                break
+        self.finished.emit()
 
 
 def mock_scan(xy):
     print('Scanning {}...'.format(xy))
-    time.sleep(1)
+    time.sleep(.1)
 
 
 
