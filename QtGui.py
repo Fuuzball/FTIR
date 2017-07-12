@@ -12,7 +12,7 @@ class OmPyGUI(QMainWindow):
         super().__init__()
         self.scan_status = 'select'
         self.scan_points = ScanPoints(parent=self)
-        self.working_dir = '/'
+        self.working_dir = '/Users/michael/github_repos/FTIR/scantest2'
         self.box_selectable = False
         self.current_scan_i = None
         self.initUI()
@@ -35,18 +35,25 @@ class OmPyGUI(QMainWindow):
         self.statusBar().showMessage('Ready')
 
         self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
+        self.spec_vis = SpectralVisualizer(parent = self)
         
         # Fix the size of of box selector
         self.boxSelector.setFixedSize(self.boxSelector.size())
+        self.spec_vis.setFixedSize(self.spec_vis.size())
 
         buttonRow = QHBoxLayout()
         buttonRow.addWidget(self.btn_select_dir)
         buttonRow.addWidget(self.btn_toggle_scan)
         buttonRow.addWidget(self.btn_stop_scan)
 
+        display_row = QHBoxLayout()
+        display_row.addWidget(self.boxSelector)
+        display_row.addWidget(self.spec_vis)
+
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
-        layout.addWidget(self.boxSelector)
+        #layout.addWidget(self.boxSelector)
+        layout.addLayout(display_row)
 
         self.container.setLayout(layout) 
         self.container.resize(self.boxSelector.size()) 
@@ -56,7 +63,7 @@ class OmPyGUI(QMainWindow):
 
     def start_scanning(self): 
         self.scan_thread = QThread()
-        self.scan_runner = ScanRunner(self.scan_points)
+        self.scan_runner = ScanRunner(self.scan_points, self.working_dir)
         self.scan_runner.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_runner.run)
 
@@ -73,7 +80,7 @@ class OmPyGUI(QMainWindow):
         self.update_UI()
 
     def done_scanning_point(self, i):
-        pass
+        self.scan_points.set_scanned(i)
 
 
     def toggle_scanning(self): 
@@ -250,7 +257,6 @@ class ScanBoxSelect(QWidget):
 
         return [(x, y) for y in yList for x in xList]
 
-
     def uv_to_xy(self, u, v):
         x = (u - self.rImgW/2) / self.a + self.x0
         y = (v - self.rImgH/2) / self.b + self.y0
@@ -355,31 +361,78 @@ class ScanRunner(QObject):
     begin_scan_pt = pyqtSignal(int)
     done_scan_pt = pyqtSignal(int)
 
-    def __init__(self, points):
+    def __init__(self, points, dir):
         super().__init__()
         self.points = points
+        self.dir = dir
         self.is_scanning = True
 
     def run(self):
+        sample_fname = os.path.join(self.dir, 'sample.csv')
+        sample_arr = np.genfromtxt(sample_fname, delimiter = ',')
+        sample_freq = sample_arr[:,0]
         while self.is_scanning:
             if 0 in self.points.status:
                 i = self.points.status.index(0)
                 self.points.set_scanning(i)
                 xy = self.points.xy[i]
                 self.begin_scan_pt.emit(i)
-                mock_scan(xy)
-                self.points.set_scanned(i)
+                fname = os.path.join(self.dir, 'data', str(i) + '.csv')
+                mock_scan(xy, fname, sample_arr)
                 self.done_scan_pt.emit(i)
             else:
                 break
         self.finished.emit()
 
 
-def mock_scan(xy):
-    #print('Scanning {}...'.format(xy))
-    time.sleep(.1)
+class PointVis(QWidget):
+
+    def __init__(self, points, parent = None):
+        super().__init__(parent)
+        self.parent = parent
+        self.points = points
+        self.resize(parent.size())
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
 
+    def paintEvent(self, e):
+        q = QPainter(self)
+        ptXY = self.points.xy
+        ptStat = self.points.status
+        for xy, s in zip(ptXY, ptStat):
+            uv = self.parent.xy_to_uv(*xy)
+            q.setPen(Qt.NoPen)
+            if s == 0:
+                q.setBrush(QBrush(Qt.red))
+            if s == -1:
+                q.setBrush(QBrush(Qt.blue))
+            if s == 1:
+                q.setBrush(QBrush(Qt.green))
+            #q.drawPoint(*uv)
+            r = self.parent.xRes * 0.6
+            q.drawEllipse(QPoint(*uv), r, r)
+
+
+class SpectralVisualizer(QWidget):
+
+    def __init__(self, parent = None):
+        super().__init__(parent)
+        self.parent = parent
+        self.working_dir = self.parent.working_dir
+        
+        self.initUI()
+
+    def initUI(self): 
+        pts_fname = os.path.join(self.working_dir, 'points_scanned.csv')
+
+
+def mock_scan(xy, fname, sample_arr):
+    #Make fake data
+    freq = sample_arr[:,0]
+    sample_arr[:,1] = (np.random.rand(sample_arr.shape[0]))
+    time.sleep(1)
+
+    np.savetxt(fname, sample_arr, delimiter = ',')
 
 
 if __name__ == '__main__':
