@@ -15,13 +15,21 @@ class OmPyGUI(QMainWindow):
         self.working_dir = '/Users/michael/github_repos/FTIR/scantest2/data'
         self.image_path = os.path.join(self.working_dir, 'vis_ref.png')
         self.box_selectable = False
-        self.current_scan_i = None
+        self.current_scan_i = False
+
+
         self.initUI()
         self.update_UI()
 
     def initUI(self): 
-        MAXUI_WIDTH = 1200
+        self.MAXUI_WIDTH = 1200
         self.container = QWidget(self)
+
+        self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
+        self.boxSelector.setFixedSize(self.boxSelector.size())
+        self.spec_vis = SpectralVisualizer(parent = self)
+        self.spec_vis.import_spec_data()
+
         self.btn_toggle_scan = QPushButton('Scan', self)
         self.btn_toggle_scan.setEnabled(False)
         self.btn_toggle_scan.clicked.connect(self.toggle_scanning)
@@ -34,26 +42,14 @@ class OmPyGUI(QMainWindow):
         self.btn_select_dir.setEnabled(True)
         self.btn_select_dir.clicked.connect(self.select_dir)
 
+        self.btn_import_spec = QPushButton('Import Spectral Data', self)
+        self.btn_import_spec.setEnabled(True)
+        self.btn_import_spec.clicked.connect(self.spec_vis.import_spec_data)
+
         self.statusBar().showMessage('Ready')
 
-        self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
-        self.spec_vis = SpectralVisualizer(parent = self)
-        
-        # Fix the size of of box selector
-        self.boxSelector.setFixedSize(self.boxSelector.size())
-
-        #self.spec_vis.setFixedHeight(self.boxSelector.size().height())
-        #self.spec_vis.resize(self.boxSelector.size())
-
-        selector_height = self.boxSelector.size().height()
-        spec_aspect_ratio = self.spec_vis.aspect_ratio
-        spec_width = spec_aspect_ratio * selector_height
-        if spec_width + self.boxSelector.size().width() > MAXUI_WIDTH:
-            spec_width = MAXUI_WIDTH - self.boxSelector.size().width()
-            spec_height = spec_width / spec_aspect_ratio
-            self.spec_vis.setFixedSize(spec_width, spec_height)
-        else:
-            self.spec_vis.setFixedSize(spec_aspect_ratio * selector_height, selector_height)
+        self.spec_vis.spec_imported.connect(self.resize_spec_vis)
+        self.resize_spec_vis()
 
         spec_cont = DenseContainer()
         spec_cont_layout = QVBoxLayout()
@@ -68,6 +64,7 @@ class OmPyGUI(QMainWindow):
         buttonRow.addWidget(self.btn_select_dir)
         buttonRow.addWidget(self.btn_toggle_scan)
         buttonRow.addWidget(self.btn_stop_scan)
+        buttonRow.addWidget(self.btn_import_spec)
 
         display_row = QHBoxLayout()
         display_row.addWidget(self.boxSelector)
@@ -84,6 +81,16 @@ class OmPyGUI(QMainWindow):
         self.setCentralWidget(self.container)
         self.show()
 
+    def resize_spec_vis(self):
+        selector_height = self.boxSelector.size().height()
+        spec_aspect_ratio = self.spec_vis.aspect_ratio
+        spec_width = spec_aspect_ratio * selector_height
+        if spec_width + self.boxSelector.size().width() > self.MAXUI_WIDTH:
+            spec_width = self.MAXUI_WIDTH - self.boxSelector.size().width()
+            spec_height = spec_width / spec_aspect_ratio
+            self.spec_vis.setFixedSize(spec_width, spec_height)
+        else:
+            self.spec_vis.setFixedSize(spec_aspect_ratio * selector_height, selector_height)
     def start_scanning(self): 
         self.scan_thread = QThread()
         self.scan_runner = ScanRunner(self.scan_points, self.working_dir)
@@ -95,6 +102,8 @@ class OmPyGUI(QMainWindow):
         self.scan_runner.finished.connect(self.finished_scanning)
 
         self.scan_thread.start()
+
+
 
         self.update_UI()
 
@@ -444,24 +453,61 @@ class PointVis(QWidget):
 
 class SpectralVisualizer(QWidget):
 
+    spec_imported = pyqtSignal()
     def __init__(self, parent = None):
         #Assuming that points are spaced isotropically (x-, y- direction) in a rect. lattice
         super().__init__(parent)
         self.parent = parent
         self.working_dir = self.parent.working_dir
-        scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
-        scanned_points = np.loadtxt(
-                open(scanned_csv_fname, 'rb'), delimiter=',', skiprows = 1
-                )
-        self.max_x, self.max_y, _ = scanned_points.max(0)
-        self.min_x, self.min_y, _ = scanned_points.min(0)
+        self.scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
+        self.aspect_ratio = 1.5
+
+    def import_spec_data(self):
+        try: 
+            self.scanned_points = np.loadtxt(
+                    open(self.scanned_csv_fname, 'rb'), delimiter=',', skiprows = 1
+                    )
+            self.aspect_ratio = self.get_aspect_ratio()
+            self.make_spec_vis_arr()
+
+            self.spec_imported.emit()
+        except FileNotFoundError:
+            print('File does not exist')
+
+    def get_aspect_ratio(self):
+        self.max_x, self.max_y, _ = self.scanned_points.max(0)
+        self.min_x, self.min_y, _ = self.scanned_points.min(0)
         self.data_w = self.max_x - self.min_x
         self.data_h = self.max_y - self.min_y
-        self.aspect_ratio = self.data_w / self.data_h
-        self.initUI()
+        return self.data_w / self.data_h
 
-    def initUI(self): 
-        pts_fname = os.path.join(self.working_dir, 'points_scanned.csv')
+    def make_spec_vis_arr(self):
+        unique_x = np.unique(self.scanned_points[:,0])
+        unique_y = np.unique(self.scanned_points[:,1])
+        self.index_array = np.zeros_like(self.scanned_points[:,:2])
+        for i, x in enumerate(unique_x):
+            self.index_array[self.scanned_points[:,0] == x, 1] = i
+        for j, y in enumerate(unique_y):
+            self.index_array[self.scanned_points[:,1] == y, 0] = j
+
+        print(self.index_array)
+        
+        self.spec_pix = []
+
+        grid = QGridLayout()
+        grid.setSpacing(1)
+        grid.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(grid)
+
+        for ij in self.index_array:
+            pix = SpecSquare(parent=self)
+            self.spec_pix.append(pix)
+            grid.addWidget(pix, *ij)
+
+
+
+
+
         
 
     def paintEvent(self, e):
@@ -470,6 +516,16 @@ class SpectralVisualizer(QWidget):
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
 
+class SpecSquare(QWidget):
+
+    def __init__(self, parent = None):
+        super().__init__(parent)
+
+    def paintEvent(self, e):
+        q = QPainter(self)
+        q.setBrush(QBrush(Qt.blue))
+        q.drawRect(self.rect())
+        frame_w, frame_h = self.size().width(), self.size().height()
 
 class DenseContainer(QWidget):
     
