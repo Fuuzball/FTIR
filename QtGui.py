@@ -1,4 +1,4 @@
-import sys, os, random, time
+import sys, os, random, time, csv
 import numpy as np
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
@@ -12,13 +12,15 @@ class OmPyGUI(QMainWindow):
         super().__init__()
         self.scan_status = 'select'
         self.scan_points = ScanPoints(parent=self)
-        self.working_dir = '/Users/michael/github_repos/FTIR/scantest2'
+        self.working_dir = '/Users/michael/github_repos/FTIR/scantest2/data'
+        self.image_path = os.path.join(self.working_dir, 'vis_ref.png')
         self.box_selectable = False
         self.current_scan_i = None
         self.initUI()
         self.update_UI()
 
     def initUI(self): 
+        MAXUI_WIDTH = 1200
         self.container = QWidget(self)
         self.btn_toggle_scan = QPushButton('Scan', self)
         self.btn_toggle_scan.setEnabled(False)
@@ -39,7 +41,28 @@ class OmPyGUI(QMainWindow):
         
         # Fix the size of of box selector
         self.boxSelector.setFixedSize(self.boxSelector.size())
-        self.spec_vis.setFixedSize(self.spec_vis.size())
+
+        #self.spec_vis.setFixedHeight(self.boxSelector.size().height())
+        #self.spec_vis.resize(self.boxSelector.size())
+
+        selector_height = self.boxSelector.size().height()
+        spec_aspect_ratio = self.spec_vis.aspect_ratio
+        spec_width = spec_aspect_ratio * selector_height
+        if spec_width + self.boxSelector.size().width() > MAXUI_WIDTH:
+            spec_width = MAXUI_WIDTH - self.boxSelector.size().width()
+            spec_height = spec_width / spec_aspect_ratio
+            self.spec_vis.setFixedSize(spec_width, spec_height)
+        else:
+            self.spec_vis.setFixedSize(spec_aspect_ratio * selector_height, selector_height)
+
+        spec_cont = DenseContainer()
+        spec_cont_layout = QVBoxLayout()
+        spec_cont_layout.addStretch(1)
+        spec_cont_layout.addWidget(self.spec_vis)
+        spec_cont_layout.addStretch(1)
+        spec_cont_layout.setContentsMargins(0, 0, 0, 0)
+        spec_cont.setLayout(spec_cont_layout)
+        spec_cont.setFixedHeight(self.boxSelector.size().height())
 
         buttonRow = QHBoxLayout()
         buttonRow.addWidget(self.btn_select_dir)
@@ -48,15 +71,15 @@ class OmPyGUI(QMainWindow):
 
         display_row = QHBoxLayout()
         display_row.addWidget(self.boxSelector)
-        display_row.addWidget(self.spec_vis)
+        #display_row.addWidget(self.spec_vis)
+        display_row.addWidget(spec_cont)
 
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
-        #layout.addWidget(self.boxSelector)
         layout.addLayout(display_row)
 
         self.container.setLayout(layout) 
-        self.container.resize(self.boxSelector.size()) 
+
 
         self.setCentralWidget(self.container)
         self.show()
@@ -81,7 +104,6 @@ class OmPyGUI(QMainWindow):
 
     def done_scanning_point(self, i):
         self.scan_points.set_scanned(i)
-
 
     def toggle_scanning(self): 
         print('toggle scanning-----')
@@ -206,7 +228,7 @@ class ScanBoxSelect(QWidget):
 
     def loadRefImg(self):
         self.refImg  = QLabel(self)
-        pixmap = QPixmap(imgPath)
+        pixmap = QPixmap(self.parent.image_path)
         self.refImg.setPixmap(pixmap)
         self.rImgW = pixmap.width()
         self.rImgH = pixmap.height()
@@ -371,14 +393,21 @@ class ScanRunner(QObject):
         sample_fname = os.path.join(self.dir, 'sample.csv')
         sample_arr = np.genfromtxt(sample_fname, delimiter = ',')
         sample_freq = sample_arr[:,0]
+        scan_csv_fname = os.path.join(self.dir, 'scan_points.csv')
         while self.is_scanning:
             if 0 in self.points.status:
                 i = self.points.status.index(0)
                 self.points.set_scanning(i)
                 xy = self.points.xy[i]
                 self.begin_scan_pt.emit(i)
-                fname = os.path.join(self.dir, 'data', str(i) + '.csv')
+
+                fname = os.path.join(self.dir, str(i) + '.csv')
                 mock_scan(xy, fname, sample_arr)
+                line = [xy[0], xy[1], time.time()]
+                with open(scan_csv_fname, 'a') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(line)
+
                 self.done_scan_pt.emit(i)
             else:
                 break
@@ -416,21 +445,45 @@ class PointVis(QWidget):
 class SpectralVisualizer(QWidget):
 
     def __init__(self, parent = None):
+        #Assuming that points are spaced isotropically (x-, y- direction) in a rect. lattice
         super().__init__(parent)
         self.parent = parent
         self.working_dir = self.parent.working_dir
-        
+        scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
+        scanned_points = np.loadtxt(
+                open(scanned_csv_fname, 'rb'), delimiter=',', skiprows = 1
+                )
+        self.max_x, self.max_y, _ = scanned_points.max(0)
+        self.min_x, self.min_y, _ = scanned_points.min(0)
+        self.data_w = self.max_x - self.min_x
+        self.data_h = self.max_y - self.min_y
+        self.aspect_ratio = self.data_w / self.data_h
         self.initUI()
 
     def initUI(self): 
         pts_fname = os.path.join(self.working_dir, 'points_scanned.csv')
+        
 
+    def paintEvent(self, e):
+        q = QPainter(self)
+        q.setBrush(QBrush(Qt.red))
+        q.drawRect(self.rect())
+        frame_w, frame_h = self.size().width(), self.size().height()
+
+
+class DenseContainer(QWidget):
+    
+    def paintEvent(self, e):
+        q = QPainter(self)
+        q.setBrush(QBrush(Qt.Dense6Pattern))
+        q.drawRect(self.rect())
+        
 
 def mock_scan(xy, fname, sample_arr):
     #Make fake data
     freq = sample_arr[:,0]
     sample_arr[:,1] = (np.random.rand(sample_arr.shape[0]))
-    time.sleep(1)
+    time.sleep(.1)
 
     np.savetxt(fname, sample_arr, delimiter = ',')
 
