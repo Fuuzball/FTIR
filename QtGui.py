@@ -3,6 +3,9 @@ import numpy as np
 from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 
 imgPath = os.getcwd() + '/scantest/vis_ref.png'
 
@@ -71,9 +74,13 @@ class OmPyGUI(QMainWindow):
         #display_row.addWidget(self.spec_vis)
         display_row.addWidget(spec_cont)
 
+        self.spec_plot = PlotCanvas(parent=self)
+        self.spec_plot.setFixedHeight(200)
+
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
         layout.addLayout(display_row)
+        layout.addWidget(self.spec_plot)
 
         self.container.setLayout(layout) 
 
@@ -487,8 +494,15 @@ class SpectralVisualizer(QWidget):
             print('File does not exist')
 
     def import_spectra(self):
+        self.spectra = []
         for i, _ in enumerate(self.scanned_points):
-            print(i)
+            fname = os.path.join(self.working_dir, str(i) + '.csv')
+            self.spectra.append(
+                    np.loadtxt(
+                        open(fname, 'rb'), delimiter=','
+                        )
+                    )
+
 
     def get_aspect_ratio(self):
         w = self.index_array.max(0)[0] + 1
@@ -545,7 +559,6 @@ class SpectralVisualizer(QWidget):
             self.selected_index = idx
 
 
-
 class SpecSquare(QWidget):
 
     def __init__(self, index, parent = None):
@@ -559,9 +572,6 @@ class SpecSquare(QWidget):
         q.setBrush(QBrush(Qt.blue))
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
-
-
-
 
 
 class DenseContainer(QWidget):
@@ -579,6 +589,36 @@ def mock_scan(xy, fname, sample_arr):
     time.sleep(.1)
 
     np.savetxt(fname, sample_arr, delimiter = ',')
+
+
+class PlotCanvas(FigureCanvas):
+    def __init__(self, data, parent=None, width=30, height=2, dpi=100):
+        self.data = data
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = fig.add_subplot(111)
+        fig.tight_layout()
+
+        FigureCanvas.__init__(self, fig)
+        self.setParent(parent)
+
+
+        self.cursor_x = 0
+        self.plot()
+        self.mpl_connect('motion_notify_event', self.mouse_down)
+    
+    def plot(self):
+        data = [random.random() for i in range(100)]
+        self.ax = self.figure.add_subplot(111)
+        self.ax.plot(data, 'r-', linewidth=.5)
+        self.cursor_line = self.ax.axvline(x=self.cursor_x, color='r', linewidth=.5)
+        self.draw()
+
+    def mouse_down(self, e):
+        if e.button:
+            self.cursor_x = e.xdata
+            self.cursor_line.remove()
+            self.cursor_line = self.ax.axvline(x=self.cursor_x, color='r', linewidth=.5)
+            self.draw()
 
 
 if __name__ == '__main__':
