@@ -11,11 +11,31 @@ from PyQt5.QtGui import *
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+from sklearn import svm
 
 imgPath = os.getcwd() + '/scantest/vis_ref.png'
 
+def getXY():
+    return 0, 0
+
+
+def mock_pic(fname):
+    time.sleep(.1)
+
+class PictureTaker(QObject):
+
+    finished = pyqtSignal()
+    def __init__(self, fname):
+        super().__init__()
+        self.fname = fname
+
+    def run(self):
+        mock_pic(self.fname)
+        self.finished.emit()
+
 class OmPyGUI(QMainWindow):
 
+    # TODO: Load image before loading points
     def __init__(self):
         super().__init__()
         self.scan_status = 'select'
@@ -23,12 +43,15 @@ class OmPyGUI(QMainWindow):
         self.working_dir = '/Users/michael/github_repos/FTIR/scantest2/data'
         self.image_path = os.path.join(self.working_dir, 'vis_ref.png')
 
+        self.x0, self.y0 = getXY()
+
         self.box_selectable = False
         self.current_scan_i = False
         self.selected_freq = 0
         self.spec_ylim = [0, 1]
         self.spec_xlim = [0, 1000]
 
+        self.total_points_scanned = 0
         
         self.UI_initialized = False
         self.initUI()
@@ -38,10 +61,18 @@ class OmPyGUI(QMainWindow):
         self.MAXUI_WIDTH = 1200
         self.container = QWidget(self)
 
-        self.boxSelector = ScanBoxSelect(0, 0, parent = self) 
+        # TODO: Overhaul of the button system
+        self.spec_plotter = PlotCanvas(parent=self)
+        self.spec_plotter.setFixedHeight(200)
+
+        self.boxSelector = ScanBoxSelect(parent = self) 
         self.boxSelector.setFixedSize(self.boxSelector.size())
         self.spec_vis = SpectralVisualizer(parent = self)
+        self.spec_vis.spec_imported.connect(self.spec_imported)
         self.spec_vis.import_spec_data()
+
+        self.btn_take_ref_img = QPushButton('Get Ref. Image', self)
+        self.btn_take_ref_img.clicked.connect(self.take_vis_ref_img)
 
         self.btn_toggle_scan = QPushButton('Scan', self)
         self.btn_toggle_scan.setEnabled(False)
@@ -59,9 +90,14 @@ class OmPyGUI(QMainWindow):
         self.btn_import_spec.setEnabled(True)
         self.btn_import_spec.clicked.connect(self.spec_vis.import_spec_data)
 
+        self.btn_toggle_spec_mode = QPushButton('Toggle spec. mode', self)
+        self.btn_toggle_spec_mode.clicked.connect(self.toggle_spec_mode)
+
+        self.btn_predict_roi = QPushButton('Predict Region of Interest', self)
+        self.btn_predict_roi.clicked.connect(self.predict_roi)
+
         self.statusBar().showMessage('Ready')
 
-        self.spec_vis.spec_imported.connect(self.spec_imported)
         self.resize_spec_vis()
 
         spec_cont = DenseContainer()
@@ -74,18 +110,18 @@ class OmPyGUI(QMainWindow):
         spec_cont.setFixedHeight(self.boxSelector.size().height())
 
         buttonRow = QHBoxLayout()
+        buttonRow.addWidget(self.btn_take_ref_img)
         buttonRow.addWidget(self.btn_select_dir)
         buttonRow.addWidget(self.btn_toggle_scan)
         buttonRow.addWidget(self.btn_stop_scan)
         buttonRow.addWidget(self.btn_import_spec)
-
+        buttonRow.addWidget(self.btn_toggle_spec_mode) 
+        buttonRow.addWidget(self.btn_predict_roi)
         display_row = QHBoxLayout()
         display_row.addWidget(self.boxSelector)
         #display_row.addWidget(self.spec_vis)
         display_row.addWidget(spec_cont)
 
-        self.spec_plotter = PlotCanvas(parent=self)
-        self.spec_plotter.setFixedHeight(200)
 
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
@@ -97,12 +133,14 @@ class OmPyGUI(QMainWindow):
         self.setCentralWidget(self.container)
 
         self.UI_initialized = True
-        self.updated_spec_pix_selection()
         self.update_UI()
         self.show()
 
     def spec_imported(self):
-        self.resize_spec_vis(self)
+        self.total_points_scanned = len(self.spec_vis.spectra)
+        self.resize_spec_vis()
+        self.updated_spec_pix_selection()
+        self.spec_vis.update()
 
     def resize_spec_vis(self):
         selector_height = self.boxSelector.size().height()
@@ -115,9 +153,23 @@ class OmPyGUI(QMainWindow):
         else:
             self.spec_vis.setFixedSize(spec_aspect_ratio * selector_height, selector_height)
 
+    def take_vis_ref_img(self):
+        self.picture_thread = QThread()
+        self.picture_taker = PictureTaker(self.image_path)
+        self.picture_taker.moveToThread(self.picture_thread)
+
+        self.picture_thread.started.connect(self.picture_taker.run)
+        self.picture_taker.finished.connect(self.finished_loading_pic)
+
+        self.picture_thread.start()
+
+    def finished_loading_pic(self):
+        self.boxSelector.load_ref_img()
+
     def start_scanning(self): 
         self.scan_thread = QThread()
-        self.scan_runner = ScanRunner(self.scan_points, self.working_dir)
+        print(self.total_points_scanned)
+        self.scan_runner = ScanRunner(self.scan_points, self.working_dir, self.total_points_scanned)
         self.scan_runner.moveToThread(self.scan_thread)
         self.scan_thread.started.connect(self.scan_runner.run)
 
@@ -126,8 +178,6 @@ class OmPyGUI(QMainWindow):
         self.scan_runner.finished.connect(self.finished_scanning)
 
         self.scan_thread.start()
-
-
 
         self.update_UI()
 
@@ -157,6 +207,7 @@ class OmPyGUI(QMainWindow):
             self.start_scanning()
 
     def update_UI(self):
+        # TODO Fix the statuses
         if self.UI_initialized:
             if self.scan_status == 'select':
                 self.btn_toggle_scan.setEnabled(False) 
@@ -227,7 +278,7 @@ class OmPyGUI(QMainWindow):
             else:
                 self.scan_status = 'finished'
                 self.scan_thread.exit()
-
+        self.spec_vis.import_spec_data()
         self.update_UI()
 
     def select_dir(self):
@@ -242,17 +293,56 @@ class OmPyGUI(QMainWindow):
         self.spec_plotter.data = data
         self.spec_plotter.replot()
 
+    def toggle_spec_mode(self):
+        if self.spec_vis.mode == 'view':
+            self.spec_vis.mode = 'select'
+        elif self.spec_vis.mode == 'select':
+            self.spec_vis.mode = 'view'
+        self.spec_vis.update()
+
+    def predict_roi(self):
+        acc_i = self.spec_vis.accepted_indices
+        rej_i = self.spec_vis.rejected_indices
+        spec = self.spec_vis.spectra
+
+        X = []
+        y = []
+        for i in acc_i:
+            X.append(spec[i][:,1])
+            y.append(1)
+        for i in rej_i:
+            X.append(spec[i][:,1])
+            y.append(0)
+        X = np.vstack(X) 
+        y = np.vstack(y)
+
+        clf = svm.SVC(kernel = 'linear')
+        clf.fit(X, y)
+
+        spec_arr = np.array(spec)[:, :, 1]
+        prediction = clf.predict(spec_arr)
+        new_to_scan = []
+        for idx, pred in enumerate(prediction):
+            if pred == 1:
+                self.spec_vis.predicted_indices.add(idx)
+                new_to_scan.append(self.scan_points.xy[idx])
+        self.scan_points.set_points_to_scan(new_to_scan)
+        self.scan_status = 'ready'
+        self.update_UI()
+        
+
+
 
 class ScanBoxSelect(QWidget):
 
-    def __init__(self, x0, y0, a = 3, b = -3, parent = None ):
+    def __init__(self, a = 3, b = -3, parent = None ):
         super().__init__(parent)
         self.parent = parent
         
         self.a = a
         self.b = b
-        self.x0 = x0
-        self.y0 = y0
+        self.x0 = parent.x0
+        self.y0 = parent.y0
 
         self.xRes = 5
 
@@ -261,21 +351,35 @@ class ScanBoxSelect(QWidget):
         self.initUI()
 
     def initUI(self): 
-        #Draw bg image
-        self.setWindowTitle('Image test') 
-        self.loadRefImg()
+        self.refImg  = QLabel(self)
+        self.load_ref_img_init()
+        try:
+            self.load_ref_img()
+        except:
+            pass
         self.boxSelect = Selector(self) 
         self.scanPointVis = PointVis(self.parent.scan_points, self)
-        #self.show()
+        self.w = 640
+        self.h = 480
+        self.resize(self.w, self.h)
 
-    def loadRefImg(self):
-        self.refImg  = QLabel(self)
+    def load_ref_img_init(self):
+        pixmap = QPixmap(self.parent.image_path)
+        #self.refImg.setPixmap(pixmap)
+        self.w = pixmap.width()
+        self.h = pixmap.height()
+        #self.refImg.resize(self.w, self.h)
+        self.resize(self.w, self.h)
+        self.update()
+
+    def load_ref_img(self):
         pixmap = QPixmap(self.parent.image_path)
         self.refImg.setPixmap(pixmap)
-        self.rImgW = pixmap.width()
-        self.rImgH = pixmap.height()
-        self.refImg.resize(self.rImgW, self.rImgH)
-        self.resize(self.rImgW, self.rImgH)
+        self.w = pixmap.width()
+        self.h = pixmap.height()
+        self.refImg.resize(self.w, self.h)
+        self.resize(self.w, self.h)
+        self.update()
 
     def mousePressEvent(self, event):
         if self.parent.box_selectable:
@@ -322,13 +426,13 @@ class ScanBoxSelect(QWidget):
         return [(x, y) for y in yList for x in xList]
 
     def uv_to_xy(self, u, v):
-        x = (u - self.rImgW/2) / self.a + self.x0
-        y = (v - self.rImgH/2) / self.b + self.y0
+        x = (u - self.w/2) / self.a + self.x0
+        y = (v - self.h/2) / self.b + self.y0
         return x, y
 
     def xy_to_uv(self, x, y):
-        u = (x - self.x0) * self.a + self.rImgW / 2
-        v = (y - self.x0) * self.b + self.rImgH / 2
+        u = (x - self.x0) * self.a + self.w / 2
+        v = (y - self.x0) * self.b + self.h / 2
         return u, v
 
 
@@ -367,9 +471,9 @@ class PointVis(QWidget):
             uv = self.parent.xy_to_uv(*xy)
             q.setPen(Qt.NoPen)
             if s == 0:
-                q.setBrush(QBrush(Qt.red))
-            if s == -1:
                 q.setBrush(QBrush(Qt.blue))
+            if s == -1:
+                q.setBrush(QBrush(Qt.black))
             if s == 1:
                 q.setBrush(QBrush(Qt.green))
             #q.drawPoint(*uv)
@@ -430,11 +534,12 @@ class ScanRunner(QObject):
     begin_scan_pt = pyqtSignal(int)
     done_scan_pt = pyqtSignal(int)
 
-    def __init__(self, points, dir):
+    def __init__(self, points, dir, prev_last):
         super().__init__()
         self.points = points
         self.dir = dir
         self.is_scanning = True
+        self.prev_last = prev_last
 
     def run(self):
         sample_fname = os.path.join(self.dir, 'sample.csv')
@@ -448,7 +553,7 @@ class ScanRunner(QObject):
                 xy = self.points.xy[i]
                 self.begin_scan_pt.emit(i)
 
-                fname = os.path.join(self.dir, str(i) + '.csv')
+                fname = os.path.join(self.dir, str(self.prev_last + i) + '.csv')
                 mock_scan(xy, fname, sample_arr)
                 line = [xy[0], xy[1], time.time()]
                 with open(scan_csv_fname, 'a') as f:
@@ -459,35 +564,6 @@ class ScanRunner(QObject):
             else:
                 break
         self.finished.emit()
-
-
-class PointVis(QWidget):
-
-    def __init__(self, points, parent = None):
-        super().__init__(parent)
-        self.parent = parent
-        self.points = points
-        self.resize(parent.size())
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
-
-
-    def paintEvent(self, e):
-        q = QPainter(self)
-        ptXY = self.points.xy
-        ptStat = self.points.status
-        for xy, s in zip(ptXY, ptStat):
-            uv = self.parent.xy_to_uv(*xy)
-            q.setPen(Qt.NoPen)
-            if s == 0:
-                q.setBrush(QBrush(Qt.red))
-            if s == -1:
-                q.setBrush(QBrush(Qt.blue))
-            if s == 1:
-                q.setBrush(QBrush(Qt.green))
-            #q.drawPoint(*uv)
-            r = self.parent.xRes * 0.6
-            q.drawEllipse(QPoint(*uv), r, r)
-
 
 class SpectralVisualizer(QWidget):
 
@@ -500,6 +576,11 @@ class SpectralVisualizer(QWidget):
         self.scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
         self.aspect_ratio = 1.5
         self.selected_index = 0
+        self.accepted_indices = set([])
+        self.rejected_indices = set([])
+        self.predicted_indices = set([])
+        self.mode = 'view'
+        
 
     def import_spec_data(self):
         try: 
@@ -510,9 +591,10 @@ class SpectralVisualizer(QWidget):
             self.import_spectra()
             self.make_spec_vis_arr()
             self.aspect_ratio = self.get_aspect_ratio()
+            self.selected_index = 0
             self.spec_imported.emit()
         except FileNotFoundError:
-            print('File does not exist')
+            print('Did not successfully load spectral data')
 
     def import_spectra(self):
         self.spectra = []
@@ -530,6 +612,7 @@ class SpectralVisualizer(QWidget):
         return w / h
 
     def make_spec_vis_arr(self):
+        #TODO this is really messy, fixit
         unique_x = np.unique(self.scanned_points[:,0])
         unique_y = -np.unique(-self.scanned_points[:,1])
         self.index_array = np.zeros_like(self.scanned_points[:,:2])
@@ -538,17 +621,24 @@ class SpectralVisualizer(QWidget):
         for j, y in enumerate(unique_y):
             self.index_array[self.scanned_points[:,1] == y, 1] = j
 
-
-        print(self.index_array)
-        
         self.spec_pix = []
 
         grid = QGridLayout()
         grid.setSpacing(1)
         grid.setContentsMargins(0, 0, 0, 0)
         self.setLayout(grid)
+        idx_arr = self.index_array
+        self.unique_enum_index_arr = []
+        for pair in {tuple(row) for row in idx_arr}: 
+            self.unique_enum_index_arr.append(
+                    (np.argwhere(np.all(idx_arr == pair, 1))[-1][0], pair)
+                    )
 
-        for idx, ij in enumerate(self.index_array):
+
+
+
+        #for idx, ij in enumerate(self.index_array):
+        for idx, ij in self.unique_enum_index_arr:
             pix = SpecSquare(idx, parent=self)
             self.spec_pix.append(pix)
             j, i = ij
@@ -567,19 +657,39 @@ class SpectralVisualizer(QWidget):
         i = int(x / w * i_max)
         j = int(y / h * j_max)
         try:
-            idx = np.nonzero(np.all(self.index_array == [i, j], axis=1))[0][0]
+            idx = np.nonzero(np.all(self.index_array == [i, j], axis=1))[0][-1]
+            #TODO impliment multiple scans
+            print(idx)
             return idx
         except IndexError:
             print('missing pix')
             return None
 
     def mousePressEvent(self, e):
+        self.mouse_down_event(e)
+
+    def mouseMoveEvent(self, e):
+        self.mouse_down_event(e)
+
+    def mouse_down_event(self, e):
         idx = self.get_index_from_mouse(e.pos())
+        if self.mode == 'view':
+            self.change_selection(idx)
+        elif self.mode == 'select':
+            if e.buttons() == Qt.LeftButton:
+                self.rejected_indices.discard(idx)
+                self.accepted_indices.add(idx)
+            elif e.buttons() == Qt.RightButton:
+                self.accepted_indices.discard(idx)
+                self.rejected_indices.add(idx)
+            self.update()
+
+    def change_selection(self, idx):
         if (idx != None) and (idx != self.selected_index):
             self.selected_index = idx
             self.parent.updated_spec_pix_selection()
             self.update()
-            print(self.selected_index)
+
 
 
 class SpecSquare(QWidget):
@@ -597,12 +707,19 @@ class SpecSquare(QWidget):
         freq = self.parent.parent.selected_freq
         idx = (np.abs(spec_data[:,0] - freq)).argmin()
         val = spec_data[idx, 1]
+        print(self.index, val)
         ymin, ymax = self.parent.parent.spec_ylim
         color_val = 255 * (val - ymin) / (ymax - ymin) 
     
-
         q = QPainter(self)
-        if self.index == self.parent.selected_index:
+        #if (self.index == self.parent.selected_index) and (self.parent.mode == 'view'):
+        #    q.setPen(QPen(Qt.blue, 5))
+        #elif self.parent.mode == 'select':
+        if self.index in self.parent.predicted_indices:
+            q.setPen(QPen(Qt.blue, 5))
+        elif self.index in self.parent.accepted_indices:
+            q.setPen(QPen(Qt.green, 5))
+        elif self.index in self.parent.rejected_indices:
             q.setPen(QPen(Qt.red, 5))
         else:
             q.setPen(Qt.NoPen)
@@ -651,7 +768,6 @@ class PlotCanvas(FigureCanvas):
         self.parent.spec_xlim = [xmin, xmax]
         self.ax.set_xlim(self.parent.spec_xlim)
         self.ax.set_ylim(self.parent.spec_ylim)
-        print(self.ax.get_ylim())
         if self.parent.selected_freq < xmin:
             self.parent.selected_freq = xmin
         elif self.parent.selected_freq > xmax:
@@ -659,9 +775,10 @@ class PlotCanvas(FigureCanvas):
         self.draw_cursor_line()
 
     def mouse_down(self, e):
-        self.parent.selected_freq = e.xdata
-        self.draw_cursor_line()
-        self.parent.update()
+        if e.xdata:
+            self.parent.selected_freq = e.xdata
+            self.draw_cursor_line()
+            self.parent.update()
 
     def draw_cursor_line(self):
         if self.cursor_line:
@@ -673,8 +790,9 @@ class PlotCanvas(FigureCanvas):
 def mock_scan(xy, fname, sample_arr):
     #Make fake data
     freq = sample_arr[:,0]
-    sample_arr[:,1] = (np.random.rand(sample_arr.shape[0]))
-    time.sleep(.1)
+    rand_arr = (np.random.rand(sample_arr.shape[0]))
+    sample_arr[:,1] = np.convolve(rand_arr, np.ones(20), mode = 'same')/ 20
+    #time.sleep(.1)
 
     np.savetxt(fname, sample_arr, delimiter = ',')
 
