@@ -19,6 +19,7 @@ def getXY():
     return 0, 0
 
 
+
 def mock_pic(fname):
     time.sleep(.1)
 
@@ -230,6 +231,8 @@ class OmPyGUI(QMainWindow):
                 self.btn_stop_scan.setEnabled(True)
                 self.btn_toggle_scan.setText('Pause')
                 if self.current_scan_i:
+                    print(self.current_scan_i)
+                    print(self.scan_points.xy)
                     x, y = self.scan_points.xy[self.current_scan_i]
                     self.statusBar().showMessage('Scanning ({}, {})'.format(x, y))
                 else:
@@ -326,6 +329,8 @@ class OmPyGUI(QMainWindow):
             if pred == 1:
                 self.spec_vis.predicted_indices.add(idx)
                 new_to_scan.append(self.scan_points.xy[idx])
+        self.spec_vis.accepted_indices = set([])
+        self.spec_vis.rejected_indices = set([])
         self.scan_points.set_points_to_scan(new_to_scan)
         self.scan_status = 'ready'
         self.update_UI()
@@ -580,6 +585,12 @@ class SpectralVisualizer(QWidget):
         self.rejected_indices = set([])
         self.predicted_indices = set([])
         self.mode = 'view'
+
+        #self.grid = None
+        self.grid = QGridLayout()
+        self.grid.setSpacing(1)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(self.grid)
         
 
     def import_spec_data(self):
@@ -623,10 +634,6 @@ class SpectralVisualizer(QWidget):
 
         self.spec_pix = []
 
-        grid = QGridLayout()
-        grid.setSpacing(1)
-        grid.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(grid)
         idx_arr = self.index_array
         self.unique_enum_index_arr = []
         for pair in {tuple(row) for row in idx_arr}: 
@@ -642,7 +649,17 @@ class SpectralVisualizer(QWidget):
             pix = SpecSquare(idx, parent=self)
             self.spec_pix.append(pix)
             j, i = ij
-            grid.addWidget(pix, i, j)
+            self.grid.addWidget(pix, i, j)
+
+    def clear_layout(self, layout):
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+                else:
+                    self.clear_layout(item.layout())
 
     def paintEvent(self, e):
         q = QPainter(self)
@@ -676,12 +693,17 @@ class SpectralVisualizer(QWidget):
         if self.mode == 'view':
             self.change_selection(idx)
         elif self.mode == 'select':
+            if self.predicted_indices:
+                self.predicted_indices = set([])
             if e.buttons() == Qt.LeftButton:
                 self.rejected_indices.discard(idx)
                 self.accepted_indices.add(idx)
             elif e.buttons() == Qt.RightButton:
                 self.accepted_indices.discard(idx)
                 self.rejected_indices.add(idx)
+            print('acc', self.accepted_indices)
+            print('rej', self.rejected_indices)
+            print('pred', self.predicted_indices)
             self.update()
 
     def change_selection(self, idx):
