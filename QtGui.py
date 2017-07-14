@@ -16,8 +16,8 @@ class OmPyGUI(QMainWindow):
         self.image_path = os.path.join(self.working_dir, 'vis_ref.png')
         self.box_selectable = False
         self.current_scan_i = False
-
-
+        
+        self.UI_initialized = False
         self.initUI()
         self.update_UI()
 
@@ -79,6 +79,9 @@ class OmPyGUI(QMainWindow):
 
 
         self.setCentralWidget(self.container)
+
+        self.UI_initialized = True
+        self.update_UI()
         self.show()
 
     def resize_spec_vis(self):
@@ -133,50 +136,51 @@ class OmPyGUI(QMainWindow):
             self.start_scanning()
 
     def update_UI(self):
-        if self.scan_status == 'select':
-            self.btn_toggle_scan.setEnabled(False) 
-            self.btn_stop_scan.setEnabled(False)
-            self.btn_toggle_scan.setText('Start Scan')
-            if self.working_dir:
-                self.statusBar().showMessage('Select region for scanning')
+        if self.UI_initialized:
+            if self.scan_status == 'select':
+                self.btn_toggle_scan.setEnabled(False) 
+                self.btn_stop_scan.setEnabled(False)
+                self.btn_toggle_scan.setText('Start Scan')
+                if self.working_dir:
+                    self.statusBar().showMessage('Select region for scanning')
+                    self.box_selectable = True
+                else:
+                    self.statusBar().showMessage('Select directory to store files')
+                    self.box_selectable = False
+            elif self.scan_status == 'ready': 
+                self.btn_toggle_scan.setEnabled(True) 
+                self.btn_stop_scan.setEnabled(False) 
+                self.btn_toggle_scan.setText('Start Scan')
+                self.statusBar().showMessage('Ready for scanning')
                 self.box_selectable = True
-            else:
-                self.statusBar().showMessage('Select directory to store files')
+            elif self.scan_status == 'scanning':
+                self.btn_toggle_scan.setEnabled(True)
+                self.btn_stop_scan.setEnabled(True)
+                self.btn_toggle_scan.setText('Pause')
+                if self.current_scan_i:
+                    x, y = self.scan_points.xy[self.current_scan_i]
+                    self.statusBar().showMessage('Scanning ({}, {})'.format(x, y))
+                else:
+                    self.statusBar().showMessage('Scanning...')
                 self.box_selectable = False
-        elif self.scan_status == 'ready': 
-            self.btn_toggle_scan.setEnabled(True) 
-            self.btn_stop_scan.setEnabled(False) 
-            self.btn_toggle_scan.setText('Start Scan')
-            self.statusBar().showMessage('Ready for scanning')
-            self.box_selectable = True
-        elif self.scan_status == 'scanning':
-            self.btn_toggle_scan.setEnabled(True)
-            self.btn_stop_scan.setEnabled(True)
-            self.btn_toggle_scan.setText('Pause')
-            if self.current_scan_i:
-                x, y = self.scan_points.xy[self.current_scan_i]
-                self.statusBar().showMessage('Scanning ({}, {})'.format(x, y))
-            else:
-                self.statusBar().showMessage('Scanning...')
-            self.box_selectable = False
-        elif self.scan_status == 'paused':
-            print('status paused')
-            self.btn_toggle_scan.setEnabled(True)
-            self.btn_stop_scan.setEnabled(True) 
-            self.btn_toggle_scan.setText('Resume Scan')
-            self.statusBar().showMessage('Scanning Paused')
-            self.box_selectable = False
-        elif self.scan_status == 'finished':
-            print('status finished')
-            self.btn_toggle_scan.setEnabled(False)
-            self.btn_stop_scan.setEnabled(False) 
-            self.statusBar().showMessage('Finished Scaning')
-            self.box_selectable = False
-        elif self.scan_status == 'stopping':
-            self.btn_toggle_scan.setEnabled(False)
-            self.btn_stop_scan.setEnabled(False) 
-            self.statusBar().showMessage('Stopping Scan')
-            self.box_selectable = False
+            elif self.scan_status == 'paused':
+                print('status paused')
+                self.btn_toggle_scan.setEnabled(True)
+                self.btn_stop_scan.setEnabled(True) 
+                self.btn_toggle_scan.setText('Resume Scan')
+                self.statusBar().showMessage('Scanning Paused')
+                self.box_selectable = False
+            elif self.scan_status == 'finished':
+                print('status finished')
+                self.btn_toggle_scan.setEnabled(False)
+                self.btn_stop_scan.setEnabled(False) 
+                self.statusBar().showMessage('Finished Scaning')
+                self.box_selectable = False
+            elif self.scan_status == 'stopping':
+                self.btn_toggle_scan.setEnabled(False)
+                self.btn_stop_scan.setEnabled(False) 
+                self.statusBar().showMessage('Stopping Scan')
+                self.box_selectable = False
             
     def stop_scanning(self):
         print('stop scanning-----')
@@ -362,6 +366,11 @@ class ScanPoints(object):
         self.status = [0 for p in points]
         self.points_updated()
 
+    def set_points_scanned(self, points):
+        self.xy = points
+        self.status = [1 for p in points]
+        self.points_updated()
+
     def append_point(self, pt, s=0):
         self.xy.append(pt)
         self.status.append(s)
@@ -461,34 +470,40 @@ class SpectralVisualizer(QWidget):
         self.working_dir = self.parent.working_dir
         self.scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
         self.aspect_ratio = 1.5
+        self.selected_index = None
 
     def import_spec_data(self):
         try: 
             self.scanned_points = np.loadtxt(
-                    open(self.scanned_csv_fname, 'rb'), delimiter=',', skiprows = 1
+                    open(self.scanned_csv_fname, 'rb'), delimiter=','
                     )
-            self.aspect_ratio = self.get_aspect_ratio()
             self.make_spec_vis_arr()
+            self.aspect_ratio = self.get_aspect_ratio()
+            self.parent.scan_points.set_points_scanned(self.scanned_points[:,:2])
+            self.import_spectra()
 
             self.spec_imported.emit()
         except FileNotFoundError:
             print('File does not exist')
 
+    def import_spectra(self):
+        for i, _ in enumerate(self.scanned_points):
+            print(i)
+
     def get_aspect_ratio(self):
-        self.max_x, self.max_y, _ = self.scanned_points.max(0)
-        self.min_x, self.min_y, _ = self.scanned_points.min(0)
-        self.data_w = self.max_x - self.min_x
-        self.data_h = self.max_y - self.min_y
-        return self.data_w / self.data_h
+        w = self.index_array.max(0)[0] + 1
+        h = self.index_array.max(0)[1] + 1
+        return w / h
 
     def make_spec_vis_arr(self):
         unique_x = np.unique(self.scanned_points[:,0])
-        unique_y = np.unique(self.scanned_points[:,1])
+        unique_y = -np.unique(-self.scanned_points[:,1])
         self.index_array = np.zeros_like(self.scanned_points[:,:2])
         for i, x in enumerate(unique_x):
-            self.index_array[self.scanned_points[:,0] == x, 1] = i
+            self.index_array[self.scanned_points[:,0] == x, 0] = i
         for j, y in enumerate(unique_y):
-            self.index_array[self.scanned_points[:,1] == y, 0] = j
+            self.index_array[self.scanned_points[:,1] == y, 1] = j
+
 
         print(self.index_array)
         
@@ -499,16 +514,11 @@ class SpectralVisualizer(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         self.setLayout(grid)
 
-        for ij in self.index_array:
-            pix = SpecSquare(parent=self)
+        for idx, ij in enumerate(self.index_array):
+            pix = SpecSquare(idx, parent=self)
             self.spec_pix.append(pix)
-            grid.addWidget(pix, *ij)
-
-
-
-
-
-        
+            j, i = ij
+            grid.addWidget(pix, i, j)
 
     def paintEvent(self, e):
         q = QPainter(self)
@@ -516,16 +526,43 @@ class SpectralVisualizer(QWidget):
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
 
+    def get_index_from_mouse(self, pos):
+        i_max, j_max = self.index_array.max(0) + 1
+        w, h = self.size().width(), self.size().height()
+        x, y = pos.x(), pos.y()
+        i = int(x / w * i_max)
+        j = int(y / h * j_max)
+        try:
+            idx = np.nonzero(np.all(self.index_array == [i, j], axis=1))[0][0]
+            return idx
+        except IndexError:
+            print('missing pix')
+            return None
+
+    def mousePressEvent(self, e):
+        idx = self.get_index_from_mouse(e.pos())
+        if not idx == None:
+            self.selected_index = idx
+
+
+
 class SpecSquare(QWidget):
 
-    def __init__(self, parent = None):
+    def __init__(self, index, parent = None):
         super().__init__(parent)
+        self.index = index
+        self.setMouseTracking(True)
+        #self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
     def paintEvent(self, e):
         q = QPainter(self)
         q.setBrush(QBrush(Qt.blue))
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
+
+
+
+
 
 class DenseContainer(QWidget):
     
