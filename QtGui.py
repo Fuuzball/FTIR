@@ -1,3 +1,8 @@
+"""
+TODO
+-Disable selection once spectra successfully loaded <--- impliment a way of loading data successfully
+"""
+
 import sys, os, random, time, csv
 import numpy as np
 from PyQt5.QtCore import *
@@ -17,8 +22,13 @@ class OmPyGUI(QMainWindow):
         self.scan_points = ScanPoints(parent=self)
         self.working_dir = '/Users/michael/github_repos/FTIR/scantest2/data'
         self.image_path = os.path.join(self.working_dir, 'vis_ref.png')
+
         self.box_selectable = False
         self.current_scan_i = False
+        self.selected_freq = 0
+        self.spec_ylim = [0, 1]
+        self.spec_xlim = [0, 1000]
+
         
         self.UI_initialized = False
         self.initUI()
@@ -51,7 +61,7 @@ class OmPyGUI(QMainWindow):
 
         self.statusBar().showMessage('Ready')
 
-        self.spec_vis.spec_imported.connect(self.resize_spec_vis)
+        self.spec_vis.spec_imported.connect(self.spec_imported)
         self.resize_spec_vis()
 
         spec_cont = DenseContainer()
@@ -74,22 +84,25 @@ class OmPyGUI(QMainWindow):
         #display_row.addWidget(self.spec_vis)
         display_row.addWidget(spec_cont)
 
-        self.spec_plot = PlotCanvas(parent=self)
-        self.spec_plot.setFixedHeight(200)
+        self.spec_plotter = PlotCanvas(parent=self)
+        self.spec_plotter.setFixedHeight(200)
 
         layout = QVBoxLayout()
         layout.addLayout(buttonRow)
         layout.addLayout(display_row)
-        layout.addWidget(self.spec_plot)
+        layout.addWidget(self.spec_plotter)
 
         self.container.setLayout(layout) 
-
-
+        
         self.setCentralWidget(self.container)
 
         self.UI_initialized = True
+        self.updated_spec_pix_selection()
         self.update_UI()
         self.show()
+
+    def spec_imported(self):
+        self.resize_spec_vis(self)
 
     def resize_spec_vis(self):
         selector_height = self.boxSelector.size().height()
@@ -101,6 +114,7 @@ class OmPyGUI(QMainWindow):
             self.spec_vis.setFixedSize(spec_width, spec_height)
         else:
             self.spec_vis.setFixedSize(spec_aspect_ratio * selector_height, selector_height)
+
     def start_scanning(self): 
         self.scan_thread = QThread()
         self.scan_runner = ScanRunner(self.scan_points, self.working_dir)
@@ -219,6 +233,14 @@ class OmPyGUI(QMainWindow):
     def select_dir(self):
         self.working_dir = QFileDialog.getExistingDirectory(self, 'Select working directory') 
         self.update_UI()
+
+    def updated_spec_pix_selection(self):
+        # TODO Move selected_index to main window
+        i = self.spec_vis.selected_index
+        data = self.spec_vis.spectra[i].T
+        plt.plot(*data)
+        self.spec_plotter.data = data
+        self.spec_plotter.replot()
 
 
 class ScanBoxSelect(QWidget):
@@ -477,18 +499,17 @@ class SpectralVisualizer(QWidget):
         self.working_dir = self.parent.working_dir
         self.scanned_csv_fname = os.path.join(self.working_dir, 'scan_points.csv')
         self.aspect_ratio = 1.5
-        self.selected_index = None
+        self.selected_index = 0
 
     def import_spec_data(self):
         try: 
             self.scanned_points = np.loadtxt(
                     open(self.scanned_csv_fname, 'rb'), delimiter=','
                     )
-            self.make_spec_vis_arr()
-            self.aspect_ratio = self.get_aspect_ratio()
             self.parent.scan_points.set_points_scanned(self.scanned_points[:,:2])
             self.import_spectra()
-
+            self.make_spec_vis_arr()
+            self.aspect_ratio = self.get_aspect_ratio()
             self.spec_imported.emit()
         except FileNotFoundError:
             print('File does not exist')
@@ -502,7 +523,6 @@ class SpectralVisualizer(QWidget):
                         open(fname, 'rb'), delimiter=','
                         )
                     )
-
 
     def get_aspect_ratio(self):
         w = self.index_array.max(0)[0] + 1
@@ -536,7 +556,7 @@ class SpectralVisualizer(QWidget):
 
     def paintEvent(self, e):
         q = QPainter(self)
-        q.setBrush(QBrush(Qt.red))
+        q.setBrush(QBrush(Qt.gray))
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
 
@@ -555,21 +575,38 @@ class SpectralVisualizer(QWidget):
 
     def mousePressEvent(self, e):
         idx = self.get_index_from_mouse(e.pos())
-        if not idx == None:
+        if (idx != None) and (idx != self.selected_index):
             self.selected_index = idx
+            self.parent.updated_spec_pix_selection()
+            self.update()
+            print(self.selected_index)
 
 
 class SpecSquare(QWidget):
 
     def __init__(self, index, parent = None):
         super().__init__(parent)
+        self.parent = parent
         self.index = index
+        self.selected = False
         self.setMouseTracking(True)
         #self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
     def paintEvent(self, e):
+        spec_data = self.parent.spectra[self.index]
+        freq = self.parent.parent.selected_freq
+        idx = (np.abs(spec_data[:,0] - freq)).argmin()
+        val = spec_data[idx, 1]
+        ymin, ymax = self.parent.parent.spec_ylim
+        color_val = 255 * (val - ymin) / (ymax - ymin) 
+    
+
         q = QPainter(self)
-        q.setBrush(QBrush(Qt.blue))
+        if self.index == self.parent.selected_index:
+            q.setPen(QPen(Qt.red, 5))
+        else:
+            q.setPen(Qt.NoPen)
+        q.setBrush(QColor(color_val, color_val, color_val))
         q.drawRect(self.rect())
         frame_w, frame_h = self.size().width(), self.size().height()
 
@@ -582,6 +619,57 @@ class DenseContainer(QWidget):
         q.drawRect(self.rect())
         
 
+class PlotCanvas(FigureCanvas):
+    def __init__(self, parent=None, width=30, height=2, dpi=100):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        self.ax = fig.add_subplot(111)
+
+        fig.tight_layout()
+
+        FigureCanvas.__init__(self, fig)
+        self.setParent(parent)
+        self.parent = parent
+        print(self.parent)
+
+        self.plot_init()
+        self.mpl_connect('button_press_event', self.mouse_down)
+        #self.replot()
+    
+    def plot_init(self):
+        #self.ax = self.figure.add_subplot(111)
+        self.spec_plot = None
+        #self.spec_plot, = self.ax.plot(self.data, 'r-', linewidth=1)
+        #self.cursor_line = self.ax.axvline(x=self.cursor_x, color='b', linewidth=.5)
+        self.cursor_line = None
+        self.draw()
+
+    def replot(self):
+        if self.spec_plot:
+            self.spec_plot.remove()
+        self.spec_plot, = self.ax.plot(*self.data, 'r-', linewidth=1)
+        xmin, xmax = self.data[0].min(), self.data[0].max()
+        self.parent.spec_xlim = [xmin, xmax]
+        self.ax.set_xlim(self.parent.spec_xlim)
+        self.ax.set_ylim(self.parent.spec_ylim)
+        print(self.ax.get_ylim())
+        if self.parent.selected_freq < xmin:
+            self.parent.selected_freq = xmin
+        elif self.parent.selected_freq > xmax:
+            self.parent.selected_freq = xmax
+        self.draw_cursor_line()
+
+    def mouse_down(self, e):
+        self.parent.selected_freq = e.xdata
+        self.draw_cursor_line()
+        self.parent.update()
+
+    def draw_cursor_line(self):
+        if self.cursor_line:
+            self.cursor_line.remove()
+        self.cursor_line = self.ax.axvline(x=self.parent.selected_freq, color='b', linewidth=.5)
+        self.draw()
+
+
 def mock_scan(xy, fname, sample_arr):
     #Make fake data
     freq = sample_arr[:,0]
@@ -589,36 +677,6 @@ def mock_scan(xy, fname, sample_arr):
     time.sleep(.1)
 
     np.savetxt(fname, sample_arr, delimiter = ',')
-
-
-class PlotCanvas(FigureCanvas):
-    def __init__(self, data, parent=None, width=30, height=2, dpi=100):
-        self.data = data
-        fig = Figure(figsize=(width, height), dpi=dpi)
-        self.axes = fig.add_subplot(111)
-        fig.tight_layout()
-
-        FigureCanvas.__init__(self, fig)
-        self.setParent(parent)
-
-
-        self.cursor_x = 0
-        self.plot()
-        self.mpl_connect('motion_notify_event', self.mouse_down)
-    
-    def plot(self):
-        data = [random.random() for i in range(100)]
-        self.ax = self.figure.add_subplot(111)
-        self.ax.plot(data, 'r-', linewidth=.5)
-        self.cursor_line = self.ax.axvline(x=self.cursor_x, color='r', linewidth=.5)
-        self.draw()
-
-    def mouse_down(self, e):
-        if e.button:
-            self.cursor_x = e.xdata
-            self.cursor_line.remove()
-            self.cursor_line = self.ax.axvline(x=self.cursor_x, color='r', linewidth=.5)
-            self.draw()
 
 
 if __name__ == '__main__':
